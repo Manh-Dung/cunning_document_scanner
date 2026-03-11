@@ -1,10 +1,8 @@
 import 'dart:async';
 
+import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
-
-import 'exceptions.dart';
-import 'ios_scanner_options.dart';
 
 /// A class that provides a simple way to scan documents.
 class CunningDocumentScanner {
@@ -45,5 +43,112 @@ class CunningDocumentScanner {
         }
     });
     return pictures?.map((e) => e as String).toList();
+  }
+
+  /// Get scanned document as images only
+  /// Returns a map with 'images' (List<String>) and 'pageCount' (int)
+  static Future<Map<String, dynamic>?> getScannedDocumentAsImages({
+    int noOfPages = 100,
+    bool isGalleryImportAllowed = true,
+    IosScannerOptions? iosScannerOptions,
+  }) async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.camera,
+    ].request();
+    if (statuses.containsValue(PermissionStatus.denied) ||
+        statuses.containsValue(PermissionStatus.permanentlyDenied)) {
+      throw Exception("Permission not granted");
+    }
+
+    final dynamic result =
+        await _channel.invokeMethod('getScannedDocumentAsImages', {
+      'noOfPages': noOfPages,
+      'isGalleryImportAllowed': isGalleryImportAllowed,
+      if (iosScannerOptions != null)
+        'iosScannerOptions': {
+          'imageFormat': iosScannerOptions.imageFormat.name,
+          'jpgCompressionQuality': iosScannerOptions.jpgCompressionQuality,
+        }
+    });
+
+    if (result == null) return null;
+
+    return {
+      'images': (result['images'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
+      'pageCount': result['pageCount'] as int? ?? 0,
+    };
+  }
+
+  /// Get scanned document as PDF only
+  /// Returns a map with 'pdfUri' (String) and 'pageCount' (int)
+  static Future<Map<String, dynamic>?> getScannedDocumentAsPdf({
+    int noOfPages = 100,
+    bool isGalleryImportAllowed = false,
+    IosScannerOptions? iosScannerOptions,
+  }) async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.camera,
+    ].request();
+    if (statuses.containsValue(PermissionStatus.denied) ||
+        statuses.containsValue(PermissionStatus.permanentlyDenied)) {
+      throw Exception("Permission not granted");
+    }
+
+    final dynamic result =
+        await _channel.invokeMethod('getScannedDocumentAsPdf', {
+      'noOfPages': noOfPages,
+      'isGalleryImportAllowed': isGalleryImportAllowed,
+      if (iosScannerOptions != null)
+        'iosScannerOptions': {
+          'imageFormat': iosScannerOptions.imageFormat.name,
+          'jpgCompressionQuality': iosScannerOptions.jpgCompressionQuality,
+        }
+    });
+
+    if (result == null) return null;
+
+    return {
+      'pdfUri': result['pdfUri'] as String?,
+      'pageCount': result['pageCount'] as int? ?? 0,
+    };
+  }
+
+  /// Get scanned document page URIs (content:// or file:// URIs)
+  /// Returns a map with 'uris' (List<String>) and 'pageCount' (int)
+  static Future<Map<String, dynamic>?> getScanDocumentsUri({
+    int noOfPages = 100,
+    bool isGalleryImportAllowed = false,
+    IosScannerOptions? iosScannerOptions,
+  }) async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.camera,
+    ].request();
+    if (statuses.containsValue(PermissionStatus.denied) ||
+        statuses.containsValue(PermissionStatus.permanentlyDenied)) {
+      throw Exception("Permission not granted");
+    }
+
+    final dynamic result = await _channel.invokeMethod('getScanDocumentsUri', {
+      'noOfPages': noOfPages,
+      'isGalleryImportAllowed': isGalleryImportAllowed,
+      if (iosScannerOptions != null)
+        'iosScannerOptions': {
+          'imageFormat': iosScannerOptions.imageFormat.name,
+          'jpgCompressionQuality': iosScannerOptions.jpgCompressionQuality,
+        }
+    });
+
+    if (result == null) return null;
+
+    return {
+      'uris': (result['uris'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
+      'pageCount': result['pageCount'] as int? ?? 0,
+    };
   }
 }

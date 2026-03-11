@@ -8,6 +8,7 @@ public class SwiftCunningDocumentScannerPlugin: NSObject, FlutterPlugin, VNDocum
   var resultChannel: FlutterResult?
   var presentingController: VNDocumentCameraViewController?
   var scannerOptions: CunningScannerOptions = CunningScannerOptions()
+  var currentMethod: String = "getPictures"
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "cunning_document_scanner", binaryMessenger: registrar.messenger())
@@ -16,8 +17,9 @@ public class SwiftCunningDocumentScannerPlugin: NSObject, FlutterPlugin, VNDocum
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-    if call.method == "getPictures" {
+    if call.method == "getPictures" || call.method == "getScannedDocumentAsImages" {
             scannerOptions = CunningScannerOptions.fromArguments(args: call.arguments)
+            currentMethod = call.method
             let presentedVC: UIViewController? = UIApplication.shared.keyWindow?.rootViewController
             self.resultChannel = result
             if VNDocumentCameraViewController.isSupported {
@@ -58,10 +60,14 @@ public class SwiftCunningDocumentScannerPlugin: NSObject, FlutterPlugin, VNDocum
                 try? page.pngData()?.write(to: url)
                 break
             }
-            
+
             filenames.append(url.path)
         }
-        resultChannel?(filenames)
+        if currentMethod == "getScannedDocumentAsImages" {
+            resultChannel?(["images": filenames, "pageCount": filenames.count])
+        } else {
+            resultChannel?(filenames)
+        }
         presentingController?.dismiss(animated: true)
     }
 

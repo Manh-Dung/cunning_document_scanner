@@ -31,6 +31,9 @@ class CunningDocumentScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityA
     private lateinit var activity: Activity
     private val START_DOCUMENT_ACTIVITY: Int = 0x362738
     private val START_DOCUMENT_FB_ACTIVITY: Int = 0x362737
+    private val REQUEST_CODE_SCAN_IMAGES: Int = 0x362739
+    private val REQUEST_CODE_SCAN_PDF: Int = 0x362740
+    private val REQUEST_CODE_SCAN_URI: Int = 0x362741
 
 
     /// The MethodChannel that will the communication between Flutter and native Android
@@ -45,13 +48,32 @@ class CunningDocumentScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityA
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
-        if (call.method == "getPictures") {
-            val noOfPages = call.argument<Int>("noOfPages") ?: 50;
-            val isGalleryImportAllowed = call.argument<Boolean>("isGalleryImportAllowed") ?: false;
-            this.pendingResult = result
-            startScan(noOfPages, isGalleryImportAllowed)
-        } else {
-            result.notImplemented()
+        when (call.method) {
+            "getPictures" -> {
+                val noOfPages = call.argument<Int>("noOfPages") ?: 50
+                val isGalleryImportAllowed = call.argument<Boolean>("isGalleryImportAllowed") ?: false
+                this.pendingResult = result
+                startScan(noOfPages, isGalleryImportAllowed)
+            }
+            "getScannedDocumentAsImages" -> {
+                val noOfPages = call.argument<Int>("noOfPages") ?: 50
+                val isGalleryImportAllowed = call.argument<Boolean>("isGalleryImportAllowed") ?: false
+                this.pendingResult = result
+                startScanImages(noOfPages, isGalleryImportAllowed)
+            }
+            "getScannedDocumentAsPdf" -> {
+                val noOfPages = call.argument<Int>("noOfPages") ?: 50
+                val isGalleryImportAllowed = call.argument<Boolean>("isGalleryImportAllowed") ?: false
+                this.pendingResult = result
+                startScanPdf(noOfPages, isGalleryImportAllowed)
+            }
+            "getScanDocumentsUri" -> {
+                val noOfPages = call.argument<Int>("noOfPages") ?: 50
+                val isGalleryImportAllowed = call.argument<Boolean>("isGalleryImportAllowed") ?: false
+                this.pendingResult = result
+                startScanUri(noOfPages, isGalleryImportAllowed)
+            }
+            else -> result.notImplemented()
         }
     }
 
@@ -70,7 +92,9 @@ class CunningDocumentScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityA
         this.binding = binding
         if (this.delegate == null) {
             this.delegate = PluginRegistry.ActivityResultListener { requestCode, resultCode, data ->
-                if (requestCode != START_DOCUMENT_ACTIVITY && requestCode != START_DOCUMENT_FB_ACTIVITY) {
+                if (requestCode != START_DOCUMENT_ACTIVITY && requestCode != START_DOCUMENT_FB_ACTIVITY
+                    && requestCode != REQUEST_CODE_SCAN_IMAGES && requestCode != REQUEST_CODE_SCAN_PDF
+                    && requestCode != REQUEST_CODE_SCAN_URI) {
                     return@ActivityResultListener false
                 }
                 var handled = false
@@ -99,6 +123,78 @@ class CunningDocumentScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                         Activity.RESULT_CANCELED -> {
                             // user closed camera
                             pendingResult?.success(emptyList<String>())
+                            handled = true
+                        }
+                    }
+                } else if (requestCode == REQUEST_CODE_SCAN_IMAGES) {
+                    when (resultCode) {
+                        Activity.RESULT_OK -> {
+                            val scanningResult: GmsDocumentScanningResult =
+                                GmsDocumentScanningResult.fromActivityResultIntent(data)
+                                    ?: return@ActivityResultListener false
+
+                            val images = scanningResult.pages?.map {
+                                it.imageUri.toString().removePrefix("file://")
+                            }?.toList()
+
+                            pendingResult?.success(
+                                mapOf(
+                                    "images" to (images ?: emptyList<String>()),
+                                    "pageCount" to (images?.size ?: 0)
+                                )
+                            )
+                            handled = true
+                        }
+                        Activity.RESULT_CANCELED -> {
+                            pendingResult?.success(null)
+                            handled = true
+                        }
+                    }
+                } else if (requestCode == REQUEST_CODE_SCAN_PDF) {
+                    when (resultCode) {
+                        Activity.RESULT_OK -> {
+                            val scanningResult: GmsDocumentScanningResult =
+                                GmsDocumentScanningResult.fromActivityResultIntent(data)
+                                    ?: return@ActivityResultListener false
+
+                            val pdf = scanningResult.pdf
+                            val pdfUri = pdf?.uri?.toString()?.removePrefix("file://")
+                            val pageCount = pdf?.pageCount ?: 0
+
+                            pendingResult?.success(
+                                mapOf(
+                                    "pdfUri" to pdfUri,
+                                    "pageCount" to pageCount
+                                )
+                            )
+                            handled = true
+                        }
+                        Activity.RESULT_CANCELED -> {
+                            pendingResult?.success(null)
+                            handled = true
+                        }
+                    }
+                } else if (requestCode == REQUEST_CODE_SCAN_URI) {
+                    when (resultCode) {
+                        Activity.RESULT_OK -> {
+                            val scanningResult: GmsDocumentScanningResult =
+                                GmsDocumentScanningResult.fromActivityResultIntent(data)
+                                    ?: return@ActivityResultListener false
+
+                            val pageUris = scanningResult.pages?.map {
+                                it.imageUri.toString()
+                            }?.toList()
+
+                            pendingResult?.success(
+                                mapOf(
+                                    "uris" to (pageUris ?: emptyList<String>()),
+                                    "pageCount" to (pageUris?.size ?: 0)
+                                )
+                            )
+                            handled = true
+                        }
+                        Activity.RESULT_CANCELED -> {
+                            pendingResult?.success(null)
                             handled = true
                         }
                     }
@@ -176,12 +272,56 @@ class CunningDocumentScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityA
             .setResultFormats(RESULT_FORMAT_JPEG)
             .setScannerMode(SCANNER_MODE_FULL)
             .build()
+        launchScanner(options, START_DOCUMENT_ACTIVITY, noOfPages)
+    }
+
+    /**
+     * Scan and return images only
+     */
+    private fun startScanImages(noOfPages: Int, isGalleryImportAllowed: Boolean) {
+        val options = GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(isGalleryImportAllowed)
+            .setPageLimit(noOfPages)
+            .setResultFormats(RESULT_FORMAT_JPEG, GmsDocumentScannerOptions.RESULT_FORMAT_PDF)
+            .setScannerMode(SCANNER_MODE_FULL)
+            .build()
+        launchScanner(options, REQUEST_CODE_SCAN_IMAGES, noOfPages)
+    }
+
+    /**
+     * Scan and return PDF only
+     */
+    private fun startScanPdf(noOfPages: Int, isGalleryImportAllowed: Boolean) {
+        val options = GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(isGalleryImportAllowed)
+            .setPageLimit(noOfPages)
+            .setResultFormats(RESULT_FORMAT_JPEG, GmsDocumentScannerOptions.RESULT_FORMAT_PDF)
+            .setScannerMode(SCANNER_MODE_FULL)
+            .build()
+        launchScanner(options, REQUEST_CODE_SCAN_PDF, noOfPages)
+    }
+
+    /**
+     * Scan and return page URIs
+     */
+    private fun startScanUri(noOfPages: Int, isGalleryImportAllowed: Boolean) {
+        val options = GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(isGalleryImportAllowed)
+            .setPageLimit(noOfPages)
+            .setResultFormats(RESULT_FORMAT_JPEG, GmsDocumentScannerOptions.RESULT_FORMAT_PDF)
+            .setScannerMode(SCANNER_MODE_FULL)
+            .build()
+        launchScanner(options, REQUEST_CODE_SCAN_URI, noOfPages)
+    }
+
+    /**
+     * Helper method to launch scanner with specific options and request code
+     */
+    private fun launchScanner(options: GmsDocumentScannerOptions, requestCode: Int, noOfPages: Int) {
         val scanner = GmsDocumentScanning.getClient(options)
         scanner.getStartScanIntent(activity).addOnSuccessListener {
             try {
-                // Use a custom request code for onActivityResult identification
-                activity.startIntentSenderForResult(it, START_DOCUMENT_ACTIVITY, null, 0, 0, 0)
-
+                activity.startIntentSenderForResult(it, requestCode, null, 0, 0, 0)
             } catch (e: IntentSender.SendIntentException) {
                 pendingResult?.error("ERROR", "Failed to start document scanner", null)
             }
